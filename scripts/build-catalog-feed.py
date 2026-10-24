@@ -31,7 +31,7 @@ def build(source, output, cache):
     chosen={}
     for r in rows('inventories',cache):
         sid=r['set_num'];v=(int(r['version']),int(r['id']))
-        if sid in sets and v>chosen.get(sid,(0,0)):chosen[sid]=v
+        if v>chosen.get(sid,(0,0)):chosen[sid]=v
     ids={i:(s,v) for s,(v,i) in chosen.items()}; recipes={}
     for r in rows('inventory_parts',cache):
         match=ids.get(int(r['inventory_id']))
@@ -42,6 +42,28 @@ def build(source, output, cache):
         parts[pid]['colors'].add(cid)
         if not parts[pid]['image']:parts[pid]['image']=r.get('img_url','')
         recipe['spares' if r['is_spare'].lower() in ('t','true','1') else 'parts'].append([pid,cid,qty])
+    children={}
+    for table,column in [('inventory_minifigs','fig_num'),('inventory_sets','set_num')]:
+        for r in rows(table,cache):
+            match=ids.get(int(r['inventory_id']))
+            if match:children.setdefault(match[0],[]).append((r[column],int(r['quantity'])))
+    memo={}
+    def expand(sid,trail=()):
+        if sid in memo:return memo[sid]
+        if sid in trail or len(trail)>10:return {'parts':[],'spares':[],'omitted':1,'version':1}
+        r=recipes.get(sid,{'parts':[],'spares':[],'omitted':0 if sid in chosen else 1,'version':chosen.get(sid,(1,0))[0]})
+        out={'parts':list(r['parts']),'spares':list(r['spares']),'omitted':r['omitted'],'version':r['version']}
+        for child,quantity in children.get(sid,[]):
+            c=expand(child,trail+(sid,));out['omitted']+=c['omitted']*quantity
+            for field in ['parts','spares']:out[field].extend([pid,cid,n*quantity] for pid,cid,n in c[field])
+        for field in ['parts','spares']:
+            counts={}
+            for pid,cid,n in out[field]:counts[(pid,cid)]=counts.get((pid,cid),0)+n
+            out[field]=[[pid,cid,n] for (pid,cid),n in counts.items()]
+        memo[sid]=out;return out
+    expanded={sid:expand(sid) for sid in sets if sid in recipes or sid in children}
+    for sid,r in expanded.items():r['omitted']=max(r['omitted'],sets[sid]['parts']-sum(t[2] for t in r['parts']))
+    recipes=expanded
     for p in parts.values():p['colors']=sorted(p['colors'])
     revision=datetime.now(timezone.utc).strftime('%Y-%m-%dT%H:%M:%SZ')
     payload={'schema':1,'revision':revision,'updated':revision[:10],'sets':list(sets.values()),'parts':list(parts.values()),'colors':list(colors.values()),'recipes':recipes}
