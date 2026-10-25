@@ -17,6 +17,11 @@ jobs:
         with:
           persist-credentials: false
       - run: python scripts/build-catalog-feed.py
+      - name: Prepara informative pubbliche
+        run: |
+          mkdir -p catalog-site/privacy catalog-site/licenses
+          cp privacy.html catalog-site/privacy/index.html
+          cp licenses.html catalog-site/licenses/index.html
       - uses: actions/upload-pages-artifact@v4
         with:
           path: catalog-site
@@ -30,6 +35,6 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
-      - name: Pubblica soltanto i dati del catalogo
+      - name: Pubblica catalogo e informative
         id: deployment
         uses: actions/deploy-pages@v4
